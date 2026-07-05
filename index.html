@@ -151,6 +151,10 @@
 
   /* 클립보드 버튼 & iPad 설정 */
   .btn-clip{background:#2d7ff9;color:#fff}
+  .btn-file{background:#8250df;color:#fff}
+  .btn-file:hover{background:#9668e8}
+  .btn-file.glow{animation:glow2 1.2s ease-in-out infinite alternate}
+  @keyframes glow2{from{box-shadow:0 0 0 0 rgba(130,80,223,0)}to{box-shadow:0 0 0 6px rgba(130,80,223,.4)}}
   .btn-clip:hover{background:#4a92fa}
   .btn-clip.glow{animation:glow 1.2s ease-in-out infinite alternate}
   @keyframes glow{from{box-shadow:0 0 0 0 rgba(45,127,249,.0)}to{box-shadow:0 0 0 6px rgba(45,127,249,.35)}}
@@ -230,6 +234,8 @@
     <div class="btn-row">
       <button class="btn-primary" id="btnParse">본문 추출 → 미리보기</button>
       <button class="btn-clip" id="btnClipboard">📋 클립보드에서 가져와 바로 추출</button>
+      <button class="btn-file" id="btnFile">📁 파일에서 가져와 바로 추출</button>
+      <input type="file" id="fileInput" accept=".html,.htm,.txt" style="display:none">
       <button class="btn-ghost" id="btnClear">지우기</button>
       <span class="status" id="parseStatus"></span>
     </div>
@@ -257,6 +263,15 @@
         <button class="mini-btn" id="btnCopyUrl">주소 ② 복사</button>
         <span class="status" id="urlStatus" style="margin-left:8px"></span>
         <p style="margin-top:10px">사용법: 네이버 글에서 <b>공유 버튼(⬆)</b> → 목록에서 <b>"PDF로 저장"</b> 탭 → 변환기가 열리면 파란 버튼 탭 → PDF 다운로드.</p>
+
+        <div class="warn-note">
+          💡 <b>클립보드가 계속 비어서 넘어온다면 — "파일 방식"으로 바꾸세요 (가장 확실):</b><br>
+          단축어에서 <b>"클립보드에 복사" 블록을 ✕로 삭제</b>하고, 대신 동작 검색 → <b>"파일 저장"</b>을 추가하세요.
+          파일 저장 블록에서: 입력은 <b>JavaScript 결과</b>, <b>"저장 위치 묻기" 끄기</b>, 경로는 Shortcuts 폴더,
+          하위 경로(파일명)에 <b>source.html</b> 입력, <b>"덮어쓰기" 켜기</b>. ("URL 열기"는 그대로 둡니다.)<br>
+          이후 사용: 공유 → 단축어 실행 → 변환기가 열리면 <b>보라색 "파일에서 가져와 바로 추출"</b> 버튼 →
+          파일 앱의 <b>Shortcuts 폴더 → source.html</b> 선택. 클립보드를 아예 안 거치므로 권한 문제와 무관하게 동작합니다.
+        </div>
 
         <p style="margin:22px 0 4px;border-top:1px dashed var(--line);padding-top:16px"><b>방법 B · 북마클릿 (대안)</b></p>
         북마크에 코드를 심는 방식입니다. 단, <b>iOS가 저장 시 맨 앞의 javascript: 를 지워버리는 경우가 있고</b>(그러면 아무 반응 없음 — 북마크 편집에서 javascript: 를 직접 다시 타이핑하면 해결),
@@ -668,6 +683,21 @@ $('#btnClipboard').addEventListener('click', async ()=>{
   }
 });
 
+/* ─────────────── 파일에서 가져와 바로 추출 (클립보드 우회, 가장 확실) ─────────────── */
+$('#btnFile').addEventListener('click', ()=> $('#fileInput').click());
+$('#fileInput').addEventListener('change', async (ev)=>{
+  const f = ev.target.files[0];
+  if(!f) return;
+  const text = await f.text();
+  if(!text || text.trim().length < 50){
+    $('#parseStatus').textContent='파일이 비어있습니다.'; $('#parseStatus').className='status err'; return;
+  }
+  $('#srcInput').value = text;
+  $('#btnFile').classList.remove('glow');
+  $('#btnParse').click();
+  ev.target.value = '';
+});
+
 /* ─────────────── iPad 설정: 단축어 코드/주소 + 북마클릿 생성 ─────────────── */
 (function buildIpadSetup(){
   const appURL = location.href.split('#')[0];
@@ -708,7 +738,8 @@ $('#btnClipboard').addEventListener('click', async ()=>{
 if(location.hash === '#clip'){
   const btn = $('#btnClipboard');
   btn.classList.add('glow');
-  $('#parseStatus').textContent='소스가 클립보드에 있습니다. 파란 버튼을 탭하세요 →';
+  $('#btnFile').classList.add('glow');
+  $('#parseStatus').textContent='파란 버튼(클립보드) 또는 보라 버튼(파일: Shortcuts/source.html)을 탭하세요 →';
   $('#parseStatus').className='status ok';
   btn.scrollIntoView({behavior:'smooth', block:'center'});
   history.replaceState(null,'',location.pathname); // 해시 정리
