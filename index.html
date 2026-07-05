@@ -228,14 +228,14 @@
   <div class="paste-panel">
     <p class="hint">
       <b>PC:</b> 해당 페이지에서 <code>F12</code> → Elements에서 본문 영역 복사, 또는 <code>Ctrl+U</code>(소스 보기) 전체 복사 → 아래에 붙여넣기<br>
-      <b>iPad:</b> 페이지에서 공유 → 단축어/북마클릿으로 소스 복사 후 붙여넣기 (전체 소스를 그대로 넣어도 알아서 본문만 추출합니다)
+      <b>iPad:</b> 글에서 공유(⬆) → 옵션 → <b>웹 아카이브</b> → 파일에 저장 → 아래 보라 버튼으로 그 파일 선택 (자세한 방법은 하단 "iPad 설정" 참고)
     </p>
     <textarea id="srcInput" placeholder="여기에 HTML 소스를 붙여넣으세요..." spellcheck="false"></textarea>
     <div class="btn-row">
       <button class="btn-primary" id="btnParse">본문 추출 → 미리보기</button>
       <button class="btn-clip" id="btnClipboard">📋 클립보드에서 가져와 바로 추출</button>
       <button class="btn-file" id="btnFile">📁 파일에서 가져와 바로 추출</button>
-      <input type="file" id="fileInput" accept=".html,.htm,.txt" style="display:none">
+      <input type="file" id="fileInput" style="display:none">
       <button class="btn-ghost" id="btnClear">지우기</button>
       <span class="status" id="parseStatus"></span>
     </div>
@@ -245,7 +245,17 @@
       <summary>iPad에서 소스 가져오기 설정 (최초 1회)</summary>
       <div class="setup-body">
 
-        <p style="margin:6px 0 4px"><b style="color:var(--accent)">방법 A · 단축어 앱 (권장 — 가장 확실함)</b></p>
+        <p style="margin:6px 0 4px"><b style="color:var(--accent)">방법 A · 웹 아카이브 (권장 — 설정 불필요, 네이버도 못 막음)</b></p>
+        Safari 자체 기능만 씁니다. 단축어·북마크 설정이 전혀 필요 없습니다.
+        <ol>
+          <li>저장할 글에서 <b>공유 버튼(⬆)</b> → 시트 상단 페이지 제목 옆 <b>"옵션 &gt;"</b> 탭</li>
+          <li>보내기 형식에서 <b>"웹 아카이브"</b> 선택 → 완료</li>
+          <li>공유 시트에서 <b>"파일에 저장"</b> → 위치 선택(예: iCloud Drive) → 저장</li>
+          <li>이 변환기를 열고 <b>보라색 "📁 파일에서 가져와 바로 추출"</b> → 방금 저장한 <b>.webarchive 파일</b> 선택 → 끝</li>
+        </ol>
+        <p style="margin:4px 0 0;font-size:12.5px;color:#9aa4ae">웹 아카이브는 로그인된 화면 그대로를 담으므로 유료 콘텐츠도 온전히 저장됩니다.</p>
+
+        <p style="margin:22px 0 4px;border-top:1px dashed var(--line);padding-top:16px"><b>방법 B · 단축어 앱 (한 번 설정해두면 탭 수 최소)</b></p>
         iOS 기본 <b>단축어(Shortcuts)</b> 앱으로 만들면 어떤 사이트에서든 막힘없이 동작합니다.
         <ol>
           <li>단축어 앱 열기 → 우측 상단 <b>+</b> (새 단축어)</li>
@@ -273,7 +283,7 @@
           파일 앱의 <b>Shortcuts 폴더 → source.html</b> 선택. 클립보드를 아예 안 거치므로 권한 문제와 무관하게 동작합니다.
         </div>
 
-        <p style="margin:22px 0 4px;border-top:1px dashed var(--line);padding-top:16px"><b>방법 B · 북마클릿 (대안)</b></p>
+        <p style="margin:22px 0 4px;border-top:1px dashed var(--line);padding-top:16px"><b>방법 C · 북마클릿 (대안)</b></p>
         북마크에 코드를 심는 방식입니다. 단, <b>iOS가 저장 시 맨 앞의 javascript: 를 지워버리는 경우가 있고</b>(그러면 아무 반응 없음 — 북마크 편집에서 javascript: 를 직접 다시 타이핑하면 해결),
         일부 보안이 강한 사이트에서는 실행이 차단될 수 있습니다. 방법 A가 안 될 때만 쓰세요.
         <ol>
@@ -688,15 +698,83 @@ $('#btnFile').addEventListener('click', ()=> $('#fileInput').click());
 $('#fileInput').addEventListener('change', async (ev)=>{
   const f = ev.target.files[0];
   if(!f) return;
-  const text = await f.text();
-  if(!text || text.trim().length < 50){
-    $('#parseStatus').textContent='파일이 비어있습니다.'; $('#parseStatus').className='status err'; return;
+  const st = $('#parseStatus');
+  try{
+    const buf = await f.arrayBuffer();
+    const head = new TextDecoder('ascii').decode(new Uint8Array(buf.slice(0, 8)));
+    let text;
+    if(head.startsWith('bplist00')){
+      text = parseWebArchive(buf);          // Safari 웹 아카이브
+    } else {
+      text = new TextDecoder('utf-8').decode(buf);  // 일반 HTML/텍스트
+    }
+    if(!text || text.trim().length < 50) throw new Error('내용이 비어있습니다');
+    $('#srcInput').value = text;
+    $('#btnFile').classList.remove('glow');
+    $('#btnParse').click();
+  }catch(e){
+    st.textContent='파일을 읽지 못했습니다: ' + e.message; st.className='status err';
   }
-  $('#srcInput').value = text;
-  $('#btnFile').classList.remove('glow');
-  $('#btnParse').click();
   ev.target.value = '';
 });
+
+/* ── Safari .webarchive (binary plist) 파서 ──
+   구조: bplist00 컨테이너 안의 WebMainResource.WebResourceData 에 렌더링된 HTML이 들어있음 */
+function parseWebArchive(buf){
+  const u8 = new Uint8Array(buf);
+  const dv = new DataView(buf);
+  const n = u8.length;
+  // 트레일러 (마지막 32바이트)
+  const offsetIntSize = u8[n-26];
+  const objectRefSize = u8[n-25];
+  const numObjects = Number(dv.getBigUint64(n-24));
+  const topObject  = Number(dv.getBigUint64(n-16));
+  const tableOff   = Number(dv.getBigUint64(n-8));
+  const readUInt = (pos, size)=>{ let v=0; for(let j=0;j<size;j++) v=v*256+u8[pos+j]; return v; };
+  const offsets = [];
+  for(let i=0;i<numObjects;i++) offsets.push(readUInt(tableOff+i*offsetIntSize, offsetIntSize));
+
+  function parseObj(idx){
+    let p = offsets[idx];
+    const marker = u8[p++]; const type = marker>>4, info = marker&0x0F;
+    const getLen = ()=>{
+      if(info !== 0x0F) return info;
+      const m2 = u8[p++]; const sz = 1 << (m2 & 0x0F);
+      const len = readUInt(p, sz); p += sz; return len;
+    };
+    switch(type){
+      case 0x1:{ const sz=1<<info; const v=readUInt(p,sz); return v; }
+      case 0x4:{ const len=getLen(); return u8.slice(p, p+len); }                       // data
+      case 0x5:{ const len=getLen(); return new TextDecoder('ascii').decode(u8.slice(p,p+len)); } // ascii str
+      case 0x6:{ const len=getLen(); let s='';                                          // utf16be str
+        for(let i=0;i<len;i++) s += String.fromCharCode((u8[p+2*i]<<8)|u8[p+2*i+1]);
+        return s; }
+      case 0xA:{ const len=getLen(); const refs=[];                                     // array
+        for(let i=0;i<len;i++) refs.push(readUInt(p+i*objectRefSize, objectRefSize));
+        return {__refs:refs, __arr:true}; }
+      case 0xD:{ const len=getLen(); const k=[], v=[];                                  // dict
+        for(let i=0;i<len;i++) k.push(readUInt(p+i*objectRefSize, objectRefSize));
+        for(let i=0;i<len;i++) v.push(readUInt(p+(len+i)*objectRefSize, objectRefSize));
+        return {__k:k, __v:v, __dict:true}; }
+      default: return null;
+    }
+  }
+  function dictGet(d, key){
+    for(let i=0;i<d.__k.length;i++){
+      if(parseObj(d.__k[i]) === key) return d.__v[i];
+    }
+    return -1;
+  }
+  const top = parseObj(topObject);
+  if(!top || !top.__dict) throw new Error('webarchive 구조 인식 실패');
+  const mainRef = dictGet(top, 'WebMainResource');
+  if(mainRef < 0) throw new Error('WebMainResource 없음');
+  const main = parseObj(mainRef);
+  const dataRef = dictGet(main, 'WebResourceData');
+  if(dataRef < 0) throw new Error('WebResourceData 없음');
+  const data = parseObj(dataRef);
+  return new TextDecoder('utf-8').decode(data);
+}
 
 /* ─────────────── iPad 설정: 단축어 코드/주소 + 북마클릿 생성 ─────────────── */
 (function buildIpadSetup(){
@@ -739,7 +817,7 @@ if(location.hash === '#clip'){
   const btn = $('#btnClipboard');
   btn.classList.add('glow');
   $('#btnFile').classList.add('glow');
-  $('#parseStatus').textContent='파란 버튼(클립보드) 또는 보라 버튼(파일: Shortcuts/source.html)을 탭하세요 →';
+  $('#parseStatus').textContent='파란 버튼(클립보드) 또는 보라 버튼(파일)을 탭하세요 →';
   $('#parseStatus').className='status ok';
   btn.scrollIntoView({behavior:'smooth', block:'center'});
   history.replaceState(null,'',location.pathname); // 해시 정리
