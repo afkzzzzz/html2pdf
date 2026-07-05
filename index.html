@@ -149,6 +149,39 @@
 
   footer{max-width:1100px;margin:0 auto;padding:0 20px 40px;font-size:12px;color:#5b6470}
 
+  /* 클립보드 버튼 & iPad 설정 */
+  .btn-clip{background:#2d7ff9;color:#fff}
+  .btn-clip:hover{background:#4a92fa}
+  .btn-clip.glow{animation:glow 1.2s ease-in-out infinite alternate}
+  @keyframes glow{from{box-shadow:0 0 0 0 rgba(45,127,249,.0)}to{box-shadow:0 0 0 6px rgba(45,127,249,.35)}}
+  details.ipad-setup{margin-top:16px;border-top:1px dashed var(--line);padding-top:14px}
+  details.ipad-setup summary{
+    cursor:pointer;font-size:13.5px;font-weight:800;color:#9aa4ae;list-style:none;
+    display:flex;align-items:center;gap:8px;
+  }
+  details.ipad-setup summary::before{content:"▸";transition:.15s}
+  details.ipad-setup[open] summary::before{transform:rotate(90deg)}
+  details.ipad-setup summary:hover{color:var(--ink)}
+  .setup-body{margin-top:12px;font-size:13px;color:var(--muted);line-height:1.8}
+  .setup-body ol{margin:8px 0;padding-left:20px}
+  .setup-body li{margin-bottom:6px}
+  .setup-body b{color:var(--ink)}
+  .bml-box{
+    background:#0c0f12;border:1px solid var(--line);border-radius:8px;
+    padding:10px 12px;margin:10px 0;
+    font-family:Consolas,Menlo,monospace;font-size:11px;color:#7ee2b8;
+    word-break:break-all;max-height:90px;overflow:auto;
+  }
+  .mini-btn{
+    background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+    border-radius:7px;padding:7px 14px;font-size:12.5px;font-weight:700;
+  }
+  .mini-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .warn-note{
+    background:#2a2419;border:1px solid #5c4a1e;border-radius:8px;
+    padding:10px 14px;font-size:12.5px;color:#e0c574;margin-top:10px;line-height:1.7;
+  }
+
   @media(max-width:640px){
     .src-grid{grid-template-columns:1fr}
     .sheet{padding:28px 20px 40px}
@@ -196,9 +229,32 @@
     <textarea id="srcInput" placeholder="여기에 HTML 소스를 붙여넣으세요..." spellcheck="false"></textarea>
     <div class="btn-row">
       <button class="btn-primary" id="btnParse">본문 추출 → 미리보기</button>
+      <button class="btn-clip" id="btnClipboard">📋 클립보드에서 가져와 바로 추출</button>
       <button class="btn-ghost" id="btnClear">지우기</button>
       <span class="status" id="parseStatus"></span>
     </div>
+
+    <!-- iPad 북마클릿 설정 -->
+    <details class="ipad-setup" id="ipadSetup">
+      <summary>iPad에서 소스 복사가 안 될 때 — 원터치 북마크 설정 (최초 1회)</summary>
+      <div class="setup-body">
+        iPad Safari에는 소스 보기가 없으므로, 아래 <b>"소스 복사" 북마크</b>를 한 번만 만들어 두세요.
+        이후에는 <b>네이버 글에서 이 북마크를 탭 → 변환기가 자동으로 열림 → 파란 버튼 탭</b>, 이 흐름으로 끝납니다.
+        <ol>
+          <li>아래 <b>코드 복사</b> 버튼을 눌러 코드를 복사합니다.</li>
+          <li>Safari에서 <b>아무 페이지나 북마크에 추가</b>합니다 (공유 → 즐겨찾기에 추가).</li>
+          <li>북마크 목록(책 아이콘) → <b>편집</b> → 방금 만든 북마크 선택 → <b>주소(URL)를 지우고 복사한 코드를 붙여넣기</b> → 이름을 "소스 복사"로 변경 → 완료.</li>
+          <li>이제 PDF로 만들고 싶은 글에서 북마크 "소스 복사"를 탭하면 됩니다.</li>
+        </ol>
+        <div class="bml-box" id="bmlCode">앱 주소 인식 중...</div>
+        <button class="mini-btn" id="btnCopyBml">코드 복사</button>
+        <span class="status" id="bmlStatus" style="margin-left:8px"></span>
+        <div class="warn-note" id="fileWarn" style="display:none">
+          ⚠ 지금 이 앱을 로컬 파일(file://)로 열고 있어서 북마클릿의 자동 이동 주소가 file:// 경로로 생성됩니다.
+          iPad에서 쓰려면 GitHub Pages 등 <b>https 주소로 접속한 상태</b>에서 이 코드를 복사하세요.
+        </div>
+      </div>
+    </details>
   </div>
 
   <!-- STEP 3 -->
@@ -572,6 +628,60 @@ $('#btnPdf').addEventListener('click', async ()=>{
     btn.disabled = false;
   }
 });
+
+/* ─────────────── 클립보드에서 가져와 바로 추출 ─────────────── */
+$('#btnClipboard').addEventListener('click', async ()=>{
+  const st = $('#parseStatus');
+  try{
+    if(!navigator.clipboard || !navigator.clipboard.readText) throw new Error('unsupported');
+    const text = await navigator.clipboard.readText();
+    if(!text || text.trim().length < 50) {
+      st.textContent='클립보드에 소스가 없습니다. 먼저 북마크 "소스 복사"를 탭하거나 소스를 복사하세요.';
+      st.className='status err'; return;
+    }
+    $('#srcInput').value = text;
+    $('#btnClipboard').classList.remove('glow');
+    $('#btnParse').click();
+  }catch(e){
+    st.textContent='클립보드 읽기가 차단됐습니다. 입력칸을 길게 눌러 직접 붙여넣기 해주세요.';
+    st.className='status err';
+  }
+});
+
+/* ─────────────── 북마클릿 생성 (자기 주소 기반) ─────────────── */
+(function buildBookmarklet(){
+  const appURL = location.href.split('#')[0];
+  const isFile = location.protocol === 'file:';
+  if(isFile) $('#fileWarn').style.display='block';
+
+  // 북마클릿: 현재 페이지 전체 소스 복사 → 변환기 열기 제안
+  const raw = `(function(){var h='<!DOCTYPE html>\n'+document.documentElement.outerHTML;function go(){if(confirm('소스 복사 완료! 변환기를 열까요?'))location.href='${appURL}#clip';}function fb(){var t=document.createElement('textarea');t.value=h;t.style.cssText='position:fixed;top:0;left:0;opacity:0';document.body.appendChild(t);t.focus();t.select();try{document.execCommand('copy');go();}catch(e){alert('복사 실패: 수동으로 복사해주세요');}t.remove();}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(h).then(go,fb);}else{fb();}})();`;
+  const bml = 'javascript:' + encodeURI(raw).replace(/#/g,'%23');
+  $('#bmlCode').textContent = bml;
+
+  $('#btnCopyBml').addEventListener('click', async ()=>{
+    const st = $('#bmlStatus');
+    try{
+      await navigator.clipboard.writeText(bml);
+      st.textContent='복사됨 ✓'; st.className='status ok';
+    }catch(e){
+      // 폴백: 선택 상태로 만들어주기
+      const r = document.createRange(); r.selectNodeContents($('#bmlCode'));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      st.textContent='자동 복사가 막혀 있어요. 파란 코드가 선택됐으니 복사하세요.'; st.className='status err';
+    }
+  });
+})();
+
+/* ─────────────── 북마클릿에서 넘어온 경우 (#clip) ─────────────── */
+if(location.hash === '#clip'){
+  const btn = $('#btnClipboard');
+  btn.classList.add('glow');
+  $('#parseStatus').textContent='소스가 클립보드에 있습니다. 파란 버튼을 탭하세요 →';
+  $('#parseStatus').className='status ok';
+  btn.scrollIntoView({behavior:'smooth', block:'center'});
+  history.replaceState(null,'',location.pathname); // 해시 정리
+}
 </script>
 
 <!-- 인쇄 백업 경로용 스타일 -->
