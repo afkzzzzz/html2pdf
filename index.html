@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HTML → PDF 변환기</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<meta name="theme-color" content="#111418">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PDF변환">
 
 <style>
   :root{
@@ -138,6 +144,38 @@
     color:#a2a2a2;font-size:11.5px;line-height:1.65;font-style:italic;
   }
   .sheet .fineprint p{margin:0 0 6px;color:#a2a2a2}
+  /* ── 밀도 프리셋 ── */
+  .sheet.d-normal{font-size:14.5px;line-height:1.68}
+  .sheet.d-normal p{margin:0 0 10px}
+  .sheet.d-normal h2{margin:30px 0 12px;font-size:18.5px}
+  .sheet.d-normal h3{margin:22px 0 7px;font-size:16px}
+  .sheet.d-normal p.lead{margin:14px 0;padding:10px 14px}
+  .sheet.d-normal blockquote{margin:16px 0;padding:13px 16px;font-size:14px}
+  .sheet.d-normal .og{margin:16px 0}
+  .sheet.d-normal figure{margin:14px 0}
+  .sheet.d-tight{font-size:13.5px;line-height:1.58}
+  .sheet.d-tight p{margin:0 0 7px}
+  .sheet.d-tight h2{margin:24px 0 10px;font-size:17.5px}
+  .sheet.d-tight h3{margin:18px 0 6px;font-size:15px}
+  .sheet.d-tight p.lead{margin:12px 0;padding:9px 12px}
+  .sheet.d-tight blockquote{margin:14px 0;padding:11px 14px;font-size:13.5px}
+  .sheet.d-tight .og{margin:13px 0}
+  .sheet.d-tight figure{margin:12px 0}
+
+  /* 레이아웃 옵션 바 */
+  .opts{
+    width:100%; display:flex; gap:22px; align-items:center; flex-wrap:wrap;
+    font-size:13px; color:var(--muted);
+    padding-top:11px; margin-top:8px; border-top:1px solid var(--line);
+  }
+  .opts label{display:flex; align-items:center; gap:7px; cursor:pointer}
+  .opts input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+  .opts select{
+    background:#0c0f12; color:var(--ink); border:1px solid var(--line);
+    border-radius:6px; padding:5px 10px; font-family:inherit; font-size:13px; cursor:pointer;
+  }
+  .opts .tip{font-size:12px;color:#5b6470}
+
   .sheet .source-foot{
     margin-top:24px;padding-top:14px;border-top:1px solid #e3e3e3;
     font-size:11.5px;color:#999;word-break:break-all;
@@ -731,6 +769,25 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
         <button class="btn-ghost" onclick="window.print()">브라우저 인쇄</button>
         <button class="btn-pdf" id="btnPdf">⬇ PDF 다운로드</button>
       </div>
+      <div class="opts">
+        <label><input type="checkbox" id="optMerge" checked> 문단 합치기 (한 문장씩 끊긴 글을 자연스러운 문단으로 병합)</label>
+        <label>밀도
+          <select id="optDensity">
+            <option value="">여유 (원문 느낌)</option>
+            <option value="d-normal" selected>보통</option>
+            <option value="d-tight">촘촘</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="optHideMeta"> 면책·출처 숨기기</label>
+        <label>PDF 품질
+          <select id="optQuality">
+            <option value="hi">선명</option>
+            <option value="mid" selected>보통</option>
+            <option value="lo">가벼움</option>
+          </select>
+        </label>
+        <span class="tip">옵션은 자동 저장되어 다음에도 유지됩니다</span>
+      </div>
     </div>
     <article class="sheet" id="sheet"></article>
   </div>
@@ -846,7 +903,7 @@ function parseNaver(doc){
     if(comp.classList.contains('se-text')){
       comp.querySelectorAll('.se-text-paragraph').forEach(p=>{
         const text = cleanText(p.textContent);
-        if(!text) return;
+        if(!text){ blocks.push({t:'gap'}); return; }
 
         // 본문 링크 문단은 생략 (oglink 카드가 따로 있음). 순수 URL만 있는 문단 스킵
         const onlyLink = p.querySelector('a.se-link') && cleanText(p.textContent) === cleanText(p.querySelector('a.se-link').textContent);
@@ -965,8 +1022,44 @@ function parseGeneric(doc){
 }
 
 /* ─────────────── 렌더링 ─────────────── */
-function render(parsed){
-  const {meta, blocks} = parsed;
+let LAST_PARSED = null;
+
+/* 문단 병합: gap(빈 줄)을 구분자로, 연속 문장들을 한 문단으로.
+   gap이 아예 없는 글도 6문장 단위로 끊어 거대 문단(페이지 초과)을 방지 */
+function preprocessBlocks(blocks, merge){
+  if(!merge) return blocks.filter(b=> b.t !== 'gap');
+  const out = []; let run = [];
+  const MAX_RUN = 6;
+  const flush = ()=>{
+    if(!run.length) return;
+    if(run.length === 1){ out.push(run[0]); }
+    else out.push({t:'p', html: run.map(b=>b.html).join(' ')});
+    run = [];
+  };
+  for(const b of blocks){
+    if(b.t === 'p' || b.t === 'lead'){
+      run.push(b);
+      if(run.length >= MAX_RUN) flush();
+      continue;
+    }
+    flush();
+    if(b.t !== 'gap') out.push(b);
+  }
+  flush();
+  return out;
+}
+
+function applyDensity(){
+  const sh = $('#sheet');
+  sh.classList.remove('d-normal','d-tight');
+  const v = $('#optDensity').value;
+  if(v) sh.classList.add(v);
+}
+
+function render(parsed, scroll = true){
+  LAST_PARSED = parsed;
+  const {meta} = parsed;
+  const blocks = preprocessBlocks(parsed.blocks, $('#optMerge').checked);
   DOC_TITLE = meta.title || 'document';
   const S = [];
 
@@ -986,12 +1079,13 @@ function render(parsed){
   blocks.forEach(b=>{
     if(b.t!=='li') flushList();
     switch(b.t){
+      case 'gap': break;
       case 'h2': S.push(`<h2>${escapeHTML(b.text)}</h2>`); break;
       case 'h3': S.push(`<h3>${escapeHTML(b.text)}</h3>`); break;
       case 'p': S.push(`<p>${b.html}</p>`); break;
       case 'lead': S.push(`<p class="lead">${b.html}</p>`); break;
       case 'quote': S.push(`<blockquote>${escapeHTML(b.text)}</blockquote>`); break;
-      case 'fine': S.push(`<div class="fineprint"><p>${escapeHTML(b.text)}</p></div>`); break;
+      case 'fine': if(!$('#optHideMeta').checked) S.push(`<div class="fineprint"><p>${escapeHTML(b.text)}</p></div>`); break;
       case 'hr': S.push('<div style="height:1px;background:#e3e3e3;margin:26px 0"></div>'); break;
       case 'li': listBuf.push(b.html); break;
       case 'table': S.push(b.html); break;
@@ -1012,14 +1106,41 @@ function render(parsed){
   flushList();
 
   // 연속된 fineprint 병합 표시는 CSS상 문제없음. 원문 링크 푸터
-  if(meta.url) S.push(`<div class="source-foot">원문: ${escapeHTML(meta.url)}</div>`);
+  if(meta.url && !$('#optHideMeta').checked) S.push(`<div class="source-foot">원문: ${escapeHTML(meta.url)}</div>`);
 
   $('#sheet').innerHTML = S.join('\n');
+  applyDensity();
   $('#docInfo').innerHTML = `<b>${escapeHTML(DOC_TITLE)}</b> &nbsp;·&nbsp; 블록 ${blocks.length}개 추출됨`;
   $('#previewWrap').style.display = 'block';
-  $('#previewWrap').scrollIntoView({behavior:'smooth'});
+  if(scroll) $('#previewWrap').scrollIntoView({behavior:'smooth'});
   hydrateImages($('#sheet'));
 }
+
+/* ─────────────── 레이아웃 옵션 (localStorage에 자동 저장) ─────────────── */
+const OPTS_KEY = 'pdfconv_opts_v1';
+function saveOpts(){
+  try{ localStorage.setItem(OPTS_KEY, JSON.stringify({
+    merge: $('#optMerge').checked,
+    density: $('#optDensity').value,
+    hideMeta: $('#optHideMeta').checked,
+    quality: $('#optQuality').value
+  })); }catch(e){}
+}
+function loadOpts(){
+  try{
+    const o = JSON.parse(localStorage.getItem(OPTS_KEY) || 'null');
+    if(!o) return;
+    $('#optMerge').checked = !!o.merge;
+    $('#optDensity').value = o.density ?? 'd-normal';
+    $('#optHideMeta').checked = !!o.hideMeta;
+    $('#optQuality').value = o.quality || 'mid';
+  }catch(e){}
+}
+loadOpts();
+$('#optMerge').addEventListener('change', ()=>{ saveOpts(); if(LAST_PARSED) render(LAST_PARSED, false); });
+$('#optDensity').addEventListener('change', ()=>{ saveOpts(); applyDensity(); });
+$('#optHideMeta').addEventListener('change', ()=>{ saveOpts(); if(LAST_PARSED) render(LAST_PARSED, false); });
+$('#optQuality').addEventListener('change', saveOpts);
 
 /* ─────────────── 파싱 실행 ─────────────── */
 $('#btnParse').addEventListener('click', ()=>{
@@ -1109,10 +1230,11 @@ $('#btnPdf').addEventListener('click', async ()=>{
     if(pages.length > 1 && (pages[pages.length-1].end - pages[pages.length-1].start) < 8) pages.pop();
     if(!pages.length) pages.push({start:0, end: totalH});
 
-    /* ── 페이지별 소형 캔버스 렌더링 (iOS 캔버스 크기 제한 회피) ──
-       스케일: 페이지당 캔버스 면적이 iOS 한계(약 16.7M px)의 절반 이하가 되도록 */
-    let S = 2;
+    /* ── 페이지별 소형 캔버스 렌더링 (iOS 캔버스 크기 제한 회피) ── */
+    const Q = {hi:{s:2, q:0.92}, mid:{s:1.6, q:0.85}, lo:{s:1.25, q:0.78}}[$('#optQuality').value] || {s:1.6, q:0.85};
+    let S = Q.s;
     while(S > 1 && (W*S) * (pageHpx*S) > 8_000_000) S -= 0.25;
+    const JPG_Q = Q.q;
 
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({unit:'mm', format:'a4', orientation:'portrait'});
@@ -1147,12 +1269,36 @@ $('#btnPdf').addEventListener('click', async ()=>{
         if(canvas.width === 0 || canvas.height === 0) throw new Error('캔버스 생성 실패');
         if(i > 0) pdf.addPage();
         const imgH_mm = h / pxPerMm;
-        pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', M.l, M.t, CW_MM, imgH_mm);
+        pdf.addImage(canvas.toDataURL('image/jpeg', JPG_Q), 'JPEG', M.l, M.t, CW_MM, imgH_mm);
         canvas.width = 0; canvas.height = 0; // 메모리 즉시 해제
         await new Promise(r=>setTimeout(r, 30));
       }
     } finally {
       stage.remove();
+    }
+
+    /* ── 페이지 번호 ── */
+    for(let i=0; i<pages.length; i++){
+      pdf.setPage(i+1);
+      pdf.setFontSize(9);
+      pdf.setTextColor(150);
+      pdf.text(`${i+1} / ${pages.length}`, 105, 292, {align:'center'});
+    }
+
+    /* ── PDF 목차(북마크): 소제목 → 해당 페이지 ──
+       한글은 UTF-16BE + BOM으로 인코딩해야 뷰어에서 안 깨짐 */
+    const toUTF16 = t => '\xfe\xff' + [...t].map(c=>{
+      const n = c.charCodeAt(0);
+      return String.fromCharCode(n>>8) + String.fromCharCode(n&0xFF);
+    }).join('');
+    if(pdf.outline){
+      el.querySelectorAll('h2').forEach(h=>{
+        const r = h.getBoundingClientRect();
+        const top = r.top - elRect.top;
+        const pi = pages.findIndex(p=> top >= p.start - 1 && top < p.end);
+        if(pi < 0) return;
+        pdf.outline.add(null, toUTF16(h.textContent.trim()), {pageNumber: pi+1});
+      });
     }
 
     /* ── 링크 주석 복원 ── */
@@ -1171,8 +1317,12 @@ $('#btnPdf').addEventListener('click', async ()=>{
       );
     });
 
+    let datePrefix = '';
+    const dstr = LAST_PARSED?.meta?.date || '';
+    const dm = dstr.match(/(\d{4})[.\-\/]\s*(\d{1,2})[.\-\/]\s*(\d{1,2})/);
+    if(dm) datePrefix = `${dm[1]}-${dm[2].padStart(2,'0')}-${dm[3].padStart(2,'0')}_`;
     const safeName = (DOC_TITLE||'document').replace(/[\\/:*?"<>|]/g,'').slice(0,60) || 'document';
-    pdf.save(safeName + '.pdf');
+    pdf.save(datePrefix + safeName + '.pdf');
 
     hidden.forEach(([box, d])=>{ box.style.display = d; });
     window.scrollTo(0, prevScroll);
@@ -1334,6 +1484,11 @@ if(location.hash === '#clip'){
   $('#parseStatus').className='status ok';
   btn.scrollIntoView({behavior:'smooth', block:'center'});
   history.replaceState(null,'',location.pathname); // 해시 정리
+}
+
+/* ─────────────── PWA: 서비스워커 (https에서만) ─────────────── */
+if('serviceWorker' in navigator && location.protocol === 'https:'){
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
 }
 </script>
 
